@@ -4,8 +4,8 @@
 // ---------------------------------------------------------------------------
 // LACS sensor node - XIAO ESP32-C3
 // ---------------------------------------------------------------------------
-#define LACS_FW_VERSION       "0.1.0"
-#define LACS_PAYLOAD_VERSION  1
+#define LACS_FW_VERSION       "0.2.1"
+#define LACS_PAYLOAD_VERSION  2
 
 // Silkscreen -> GPIO map for the Seeed XIAO ESP32-C3.
 // D4 = GPIO6, D5 = GPIO7, D0 = GPIO2, D1 = GPIO3.

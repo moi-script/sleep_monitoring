@@ -6,7 +6,7 @@ static float r2(float v) { return roundf(v * 100.0f) / 100.0f; }
 static float r3(float v) { return roundf(v * 1000.0f) / 1000.0f; }
 
 static void addEnvelope(JsonDocument& doc, const char* type,
-                        const char* id, uint32_t seq) {
+                        const char* id, uint64_t seq) {
   doc["v"]   = LACS_PAYLOAD_VERSION;
   doc["t"]   = type;
   doc["id"]  = id;
@@ -14,7 +14,7 @@ static void addEnvelope(JsonDocument& doc, const char* type,
   doc["ms"]  = millis();
 }
 
-void buildTelemetry(char* buf, size_t len, const char* id, uint32_t seq,
+void buildTelemetry(char* buf, size_t len, const char* id, uint64_t seq,
                     const SensorHub& hub, const Haptics& hap,
                     const char* const* flags, uint8_t flagCount) {
   JsonDocument doc;
@@ -28,6 +28,10 @@ void buildTelemetry(char* buf, size_t len, const char* id, uint32_t seq,
   ppg["red"]    = p.red;
   ppg["bpm"]    = r2(p.bpm);
   ppg["bpmAvg"] = p.bpmAvg;
+  // Only ever sent together. A number without its verdict invites the app to
+  // display a reading the algorithm rejected.
+  ppg["spo2"]      = p.spo2Valid ? p.spo2 : -1;
+  ppg["spo2Valid"] = p.spo2Valid;
 
   const ImuData& i = hub.imu();
   JsonObject imu = doc["imu"].to<JsonObject>();
@@ -48,6 +52,11 @@ void buildTelemetry(char* buf, size_t len, const char* id, uint32_t seq,
   gsr["volt"] = r3(g.volt);
   gsr["base"] = g.base;
 
+  const StepData& st = hub.steps();
+  JsonObject steps = doc["steps"].to<JsonObject>();
+  steps["count"]   = st.count;
+  steps["cadence"] = st.cadence;
+
   JsonObject motor = doc["motor"].to<JsonObject>();
   motor["on"]      = hap.isOn();
   motor["pattern"] = hap.patternName();
@@ -58,7 +67,7 @@ void buildTelemetry(char* buf, size_t len, const char* id, uint32_t seq,
   serializeJson(doc, buf, len);
 }
 
-void buildStatus(char* buf, size_t len, const char* id, uint32_t seq,
+void buildStatus(char* buf, size_t len, const char* id, uint64_t seq,
                  const SensorHub& hub, const RuntimeConfig& cfg,
                  const char* transportName) {
   JsonDocument doc;
@@ -84,7 +93,7 @@ void buildStatus(char* buf, size_t len, const char* id, uint32_t seq,
   serializeJson(doc, buf, len);
 }
 
-void buildEvent(char* buf, size_t len, const char* id, uint32_t seq,
+void buildEvent(char* buf, size_t len, const char* id, uint64_t seq,
                 const char* kind, float value) {
   JsonDocument doc;
   addEnvelope(doc, "event", id, seq);
@@ -93,7 +102,7 @@ void buildEvent(char* buf, size_t len, const char* id, uint32_t seq,
   serializeJson(doc, buf, len);
 }
 
-void buildAck(char* buf, size_t len, const char* id, uint32_t seq,
+void buildAck(char* buf, size_t len, const char* id, uint64_t seq,
               const char* cmdName, bool ok, const char* detail) {
   JsonDocument doc;
   addEnvelope(doc, "ack", id, seq);

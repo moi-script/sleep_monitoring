@@ -3,6 +3,7 @@
 #include <Wire.h>
 #include <MAX30105.h>
 #include <heartRate.h>
+#include <spo2_algorithm.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 
@@ -14,6 +15,23 @@ static const float RAD_TO_DEGF = 57.29578f;
 
 // Slow EMA so the baseline tracks skin drift but not a startle response.
 static const float GSR_BASE_ALPHA = 0.002f;
+
+/**
+ * SpO2 window.
+ *
+ * Maxim's algorithm is written for 25 Hz and 100 samples, which is four
+ * seconds of signal. The sensor runs at roughly 100 Hz, so every fourth
+ * sample is kept. Windows do not overlap: the buffer fills, gets processed,
+ * and starts again, which costs a little latency and saves running a heavy
+ * routine on every sample.
+ */
+static const int32_t SPO2_SAMPLES = 100;
+static const uint8_t SPO2_DECIMATE = 4;
+
+static uint32_t s_irWindow[SPO2_SAMPLES];
+static uint32_t s_redWindow[SPO2_SAMPLES];
+static int32_t  s_spo2Index = 0;
+static uint8_t  s_spo2Decimator = 0;
 
 static bool i2cPing(uint8_t addr) {
   Wire.beginTransmission(addr);
@@ -78,8 +96,13 @@ void SensorHub::pollPpg() {
     ppg_.bpmAvg = 0;
     ratesFilled_ = false;
     rateIdx_     = 0;
+    // A half-filled window taken before the finger lifted would produce a
+    // confident-looking number from nothing.
+    resetSpo2();
     return;
   }
+
+  updateSpo2(ppg_.ir, ppg_.red);
 
   if (checkForBeat(ppg_.ir)) {
     uint32_t now   = millis();
@@ -102,6 +125,36 @@ void SensorHub::pollPpg() {
   }
 }
 
+void SensorHub::updateSpo2(uint32_t ir, uint32_t red) {
+  if (++s_spo2Decimator < SPO2_DECIMATE) return;
+  s_spo2Decimator = 0;
+
+  s_irWindow[s_spo2Index] = ir;
+  s_redWindow[s_spo2Index] = red;
+  if (++s_spo2Index < SPO2_SAMPLES) return;
+  s_spo2Index = 0;
+
+  int32_t spo2 = 0;
+  int8_t  spo2Valid = 0;
+  int32_t heartRate = 0;   // ignored: the beat detector above is better
+  int8_t  hrValid = 0;
+
+  maxim_heart_rate_and_oxygen_saturation(
+      s_irWindow, SPO2_SAMPLES, s_redWindow, &spo2, &spo2Valid, &heartRate, &hrValid);
+
+  // The algorithm reports -999 alongside an invalid flag. Keep the flag as the
+  // single source of truth and never surface the sentinel as a reading.
+  ppg_.spo2Valid = (spo2Valid == 1) && spo2 > 0 && spo2 <= 100;
+  ppg_.spo2 = ppg_.spo2Valid ? (int16_t)spo2 : -1;
+}
+
+void SensorHub::resetSpo2() {
+  s_spo2Index = 0;
+  s_spo2Decimator = 0;
+  ppg_.spo2 = -1;
+  ppg_.spo2Valid = false;
+}
+
 void SensorHub::pollImu() {
   if (!imu_.ok) return;
   uint32_t now = millis();
@@ -119,6 +172,10 @@ void SensorHub::pollImu() {
   imu_.gz = g.gyro.z * RAD_TO_DEGF;
   imu_.mag = sqrtf(imu_.ax * imu_.ax + imu_.ay * imu_.ay + imu_.az * imu_.az);
   imu_.tempC = t.temperature;
+
+  pedometer_.update(imu_.mag, now);
+  steps_.count = pedometer_.count();
+  steps_.cadence = pedometer_.cadence();
 }
 
 void SensorHub::pollGsr() {
@@ -148,6 +205,7 @@ void SensorHub::watchdog() {
   if (ppgSeen != ppg_.ok) {
     ppg_.ok = ppgSeen ? initPpg() : false;
     if (!ppg_.ok) { ppg_ = PpgData(); }
+    resetSpo2();
     statusChanged_ = true;
   }
 

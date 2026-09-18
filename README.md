@@ -68,6 +68,13 @@ Every frame carries the same envelope: `v`, `t`, `id`, `seq`, `ms`.
 across all frame types, so the app can detect drops. `ms` is uptime, not wall
 clock — the server timestamps on arrival.
 
+`seq` never repeats, even across reboots (fw 0.2.1+). A boot counter kept in
+flash gives each boot its own block: boot N counts up from N × 1,000,000,000.
+The server drops any `{id, seq}` it already has, so a counter that restarted
+at 0 (fw 0.2.0 and earlier) lost every frame after a reboot until it passed
+the old high point. Frames after a reboot therefore show a large jump in
+`seq`; that is a new boot, not dropped frames.
+
 ### `telemetry` — default 5 Hz
 
 ```json

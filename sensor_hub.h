@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include "config.h"
+#include "pedometer.h"
 
 struct PpgData {
   bool     ok      = false;   // sensor answers on the bus
@@ -9,6 +10,21 @@ struct PpgData {
   uint32_t red     = 0;
   float    bpm     = 0.0f;    // instantaneous, from the last beat interval
   uint8_t  bpmAvg  = 0;       // rolling mean of the last 4 beats
+
+  /**
+   * Blood oxygen, computed on the board because the algorithm needs the full
+   * sample stream and only 5 summaries a second leave over the radio.
+   * `spo2Valid` is the algorithm's own verdict: when it is false the number
+   * means nothing and must not be shown.
+   */
+  int16_t  spo2      = -1;
+  bool     spo2Valid = false;
+};
+
+struct StepData {
+  /** Since power-on. The board has no clock; the server does the daily maths. */
+  uint32_t count   = 0;
+  uint16_t cadence = 0;   // steps per minute while walking, else 0
 };
 
 struct ImuData {
@@ -36,6 +52,7 @@ class SensorHub {
   const PpgData& ppg() const { return ppg_; }
   const ImuData& imu() const { return imu_; }
   const GsrData& gsr() const { return gsr_; }
+  const StepData& steps() const { return steps_; }
 
   uint8_t onlineCount() const;
   static uint8_t totalCount() { return 3; }
@@ -53,9 +70,12 @@ class SensorHub {
   void pollImu();
   void pollGsr();
 
-  PpgData ppg_;
-  ImuData imu_;
-  GsrData gsr_;
+  PpgData  ppg_;
+  ImuData  imu_;
+  GsrData  gsr_;
+  StepData steps_;
+
+  Pedometer pedometer_;
 
   bool     statusChanged_ = false;
   uint32_t lastImuMs_     = 0;
@@ -70,4 +90,7 @@ class SensorHub {
 
   float gsrBaseline_ = 0.0f;
   bool  gsrBaselineInit_ = false;
+
+  void updateSpo2(uint32_t ir, uint32_t red);
+  void resetSpo2();
 };

@@ -36,16 +36,16 @@ struct Command {
 bool parseCommand(const String& line, Command& out);
 
 // Frame builders. Each writes one complete single-line JSON document.
-void buildTelemetry(char* buf, size_t len, const char* id, uint32_t seq,
+void buildTelemetry(char* buf, size_t len, const char* id, uint64_t seq,
                     const SensorHub& hub, const Haptics& hap,
                     const char* const* flags, uint8_t flagCount);
 
-void buildStatus(char* buf, size_t len, const char* id, uint32_t seq,
+void buildStatus(char* buf, size_t len, const char* id, uint64_t seq,
                  const SensorHub& hub, const RuntimeConfig& cfg,
                  const char* transportName);
 
-void buildEvent(char* buf, size_t len, const char* id, uint32_t seq,
+void buildEvent(char* buf, size_t len, const char* id, uint64_t seq,
                 const char* kind, float value);
 
-void buildAck(char* buf, size_t len, const char* id, uint32_t seq,
+void buildAck(char* buf, size_t len, const char* id, uint64_t seq,
               const char* cmdName, bool ok, const char* detail);

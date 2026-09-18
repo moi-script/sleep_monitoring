@@ -11,6 +11,7 @@
 //   lines starting with '{' are the JSON payload for the fullstack app
 // A host parser keeps the '{' lines and drops the rest. See README.md.
 // ---------------------------------------------------------------------------
+#include <Preferences.h>
 #include "config.h"
 #include "sensor_hub.h"
 #include "haptics.h"
@@ -35,7 +36,11 @@ static void broadcast(const char* line) {
 }
 
 static char     deviceId[20] = {0};
-static uint32_t seq = 0;
+// Must never repeat for this device, even across reboots: the server treats a
+// {deviceId, seq} it already has as a duplicate and drops the frame. Starting
+// from 0 on every boot silently lost everything after a restart until the
+// counter passed the old high point. See initSeq().
+static uint64_t seq = 0;
 static char     frame[PAYLOAD_BUF_SIZE];
 
 // Rule state
@@ -80,9 +85,25 @@ static void sendAckFrame(const char* cmdName, bool ok, const char* detail) {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * Each boot gets its own block of a billion sequence numbers, from a boot
+ * counter kept in flash. At the maximum 20 Hz that is over a year and a half
+ * of uptime per block, and the largest possible value stays well inside the
+ * range a JSON number (a JS double) holds exactly.
+ */
+static void initSeq() {
+  Preferences prefs;
+  prefs.begin("lacs", false);
+  uint32_t boot = prefs.getUInt("boot", 0) + 1;
+  prefs.putUInt("boot", boot);
+  prefs.end();
+  seq = (uint64_t)boot * 1000000000ULL;
+}
+
 void setup() {
   serialLink.begin();
   makeDeviceId();
+  initSeq();
 
   Serial.println();
   Serial.printf("[BOOT] LACS node fw%s  id=%s\n", LACS_FW_VERSION, deviceId);
@@ -218,9 +239,13 @@ static void emitHumanLine() {
   const GsrData& g = hub.gsr();
 
   Serial.print("[DATA] ppg ");
-  if (p.ok) Serial.printf("ir=%lu bpm=%u finger=%c", (unsigned long)p.ir,
-                          p.bpmAvg, p.finger ? 'Y' : 'N');
-  else      Serial.print("--offline--");
+  if (p.ok) {
+    Serial.printf("ir=%lu bpm=%u finger=%c", (unsigned long)p.ir,
+                  p.bpmAvg, p.finger ? 'Y' : 'N');
+    if (p.spo2Valid) Serial.printf(" spo2=%d%%", p.spo2);
+  } else {
+    Serial.print("--offline--");
+  }
 
   Serial.print(" | imu ");
   if (i.ok) Serial.printf("a=%.2fg ax=%.2f ay=%.2f az=%.2f %.1fC",
@@ -230,6 +255,9 @@ static void emitHumanLine() {
   Serial.print(" | gsr ");
   if (g.ok) Serial.printf("%u base=%u %.2fV", g.raw, g.base, g.volt);
   else      Serial.print("--offline--");
+
+  Serial.printf(" | steps %lu", (unsigned long)hub.steps().count);
+  if (hub.steps().cadence > 0) Serial.printf(" @%u/min", hub.steps().cadence);
 
   Serial.printf(" | mot %s", haptics.patternName());
 
