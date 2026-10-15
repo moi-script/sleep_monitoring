@@ -12,13 +12,19 @@ that the fullstack app consumes.
 | MAX30102 / MPU6050 SCL| D5         | GPIO7  |
 | Grove GSR SIG         | D0         | GPIO2  |
 | Grove vibration SIG   | D1         | GPIO3  |
+| Grove buzzer SIG      | D2         | GPIO4  |
+| Grove RGB LED SIG     | D3         | GPIO5  |
+
+Status LED: blinking green = no app connected, steady green = app connected,
+steady red = a sensor is offline, blinking red = alarm sent from the app.
+The buzzer sounds whenever the vibration motor runs.
 
 Both I2C devices share the bus (0x57 and 0x68), 400 kHz.
 
 > **GPIO2 is a boot strapping pin on the ESP32-C3.** It must not be held low
 > at power-up. The Grove GSR output idles mid-rail so this works in practice,
 > but if the board ever refuses to boot with the GSR attached, move it to
-> D2 (GPIO4) and change `PIN_GSR` in `config.h`.
+> D2 (GPIO4) and change `PIN_GSR` in `config.h` (and move the buzzer off D2).
 
 ## Build
 

@@ -5,6 +5,8 @@
 //   MPU6050           SCL -> D5 (GPIO7)  SDA -> D4 (GPIO6)
 //   Grove GSR         SIG -> D0 (GPIO2)
 //   Grove vibration   SIG -> D1 (GPIO3)
+//   Grove buzzer      SIG -> D2 (GPIO4)
+//   Grove RGB LED     SIG -> D3 (GPIO5)
 //
 // Serial @115200 carries two interleaved streams on purpose:
 //   lines starting with '[' are human-readable status/output
@@ -12,6 +14,7 @@
 // A host parser keeps the '{' lines and drops the rest. See README.md.
 // ---------------------------------------------------------------------------
 #include <Preferences.h>
+#include <Adafruit_NeoPixel.h>
 #include "config.h"
 #include "sensor_hub.h"
 #include "haptics.h"
@@ -24,6 +27,7 @@ static Haptics         haptics;
 static SerialTransport serialLink;
 static BleTransport    bleLink;
 static RuntimeConfig   cfg;
+static Adafruit_NeoPixel statusLed(LED_COUNT, PIN_LED, NEO_GRB + NEO_KHZ800);
 
 // Every frame goes out on both links. Serial stays live for bench debugging
 // while the phone is connected over BLE, and a frame is never lost because
@@ -54,6 +58,9 @@ static const uint32_t RULE_COOLDOWN_MS = 5000;
 // Scheduler
 static uint32_t lastTelemetryMs = 0;
 static uint32_t lastHumanMs     = 0;
+
+// Set by an app buzz command, cleared when that pattern finishes.
+static bool appAlarm = false;
 
 // Active conditions, rebuilt every loop and attached to each telemetry frame.
 static const char* activeFlags[3];
@@ -108,6 +115,10 @@ void setup() {
   Serial.println();
   Serial.printf("[BOOT] LACS node fw%s  id=%s\n", LACS_FW_VERSION, deviceId);
 
+  pinMode(PIN_BUZZER, OUTPUT);
+  digitalWrite(PIN_BUZZER, LOW);
+  statusLed.begin();
+  statusLed.show();   // all off
   haptics.begin(PIN_MOTOR);
   hub.begin();
   hub.printStatusTable();
@@ -117,6 +128,11 @@ void setup() {
   haptics.play(HAPTIC_SINGLE);
   Serial.printf("[MOT ] VIB GPIO%u ....... test pulse\n", PIN_MOTOR);
   Serial.println("[HELP] type b=buzz s=status c=calibrate h=toggle text, or a JSON cmd");
+
+  // Advertise under the device id so the phone's picker shows the same name
+  // the Device tab asks for.
+  bleLink.setDeviceName(deviceId);
+  bleLink.begin();
 
   sendStatusFrame();
 }
@@ -135,6 +151,7 @@ static void handleCommands() {
   switch (c.type) {
     case CMD_BUZZ:
       haptics.play(c.pattern, c.ms);
+      appAlarm = haptics.pattern() != HAPTIC_IDLE;
       sendAckFrame(c.name, true, haptics.patternName());
       break;
 
@@ -217,6 +234,29 @@ static void evaluateRules() {
   }
 }
 
+// Priority: app alarm (blink red) > sensor fault (red) > app link (green,
+// steady when connected, blinking when not). The buzzer follows the motor.
+static void updateIndicators() {
+  digitalWrite(PIN_BUZZER, haptics.isOn() ? HIGH : LOW);
+
+  if (haptics.pattern() == HAPTIC_IDLE) appAlarm = false;
+  bool blinkOn = (millis() / LED_BLINK_MS) % 2 == 0;
+  bool allOk   = hub.ppg().ok && hub.imu().ok && hub.gsr().ok;
+
+  uint8_t r = 0, g = 0;
+  if (appAlarm)                    r = blinkOn ? LED_LEVEL : 0;
+  else if (!allOk)                 r = LED_LEVEL;
+  else if (bleLink.isConnected())  g = LED_LEVEL;
+  else                             g = blinkOn ? LED_LEVEL : 0;
+
+  static int32_t lastColor = -1;   // only write on change, each WS2812 write blocks briefly
+  int32_t color = (r << 8) | g;
+  if (color == lastColor) return;
+  lastColor = color;
+  statusLed.fill(statusLed.Color(r, g, 0));
+  statusLed.show();
+}
+
 static void emitTelemetry() {
   uint32_t period = 1000UL / (cfg.telemetryHz ? cfg.telemetryHz : 1);
   uint32_t now = millis();
@@ -284,6 +324,7 @@ void loop() {
     sendStatusFrame();
   }
 
+  updateIndicators();
   emitTelemetry();
   emitHumanLine();
 }

@@ -31,6 +31,7 @@ All of these went to `C:\Users\moises\Documents\Arduino\libraries`.
 | Adafruit MPU6050 | 2.2.9 | MPU6050 accel/gyro/temp |
 | ArduinoJson | 7.4.3 | building and parsing every JSON frame |
 | NimBLE-Arduino | 2.5.1 | BLE GATT server for the phone bridge |
+| Adafruit NeoPixel | 1.15.4 | Grove RGB status LED, all LEDs on the stick |
 
 ### Pulled in as dependencies
 
